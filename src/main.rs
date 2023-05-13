@@ -1,7 +1,9 @@
 #![no_std]
 #![no_main]
 
-use crate::esp32_epd_12in48::Epd12in48;
+#[macro_use]
+extern crate derive_new;
+
 use esp_backtrace as _;
 use hal::clock::ClockControl;
 use hal::spi::SpiMode;
@@ -37,22 +39,16 @@ fn main() -> ! {
         &clocks,
     );
 
-    let display = Epd12in48::new(
-        spi,
-        io.pins.gpio15,
-        io.pins.gpio16,
-        io.pins.gpio17,
-        io.pins.gpio18,
-        io.pins.gpio19,
-        io.pins.gpio20,
-        io.pins.gpio21,
-        io.pins.gpio22,
-        io.pins.gpio23,
-        io.pins.gpio24,
-        io.pins.gpio25,
-        io.pins.gpio26,
-        &clocks,
-    );
-
+    /* let display = Epd12in48::new(
+            spi,
+            Delay::new(&clocks),
+            DisplayHalf{
+                reset_pin: (),
+                command_pin: (),
+                left_display: (),
+                right_display: (),
+            },
+            /* bottom_half */);
+    */
     loop {}
 }

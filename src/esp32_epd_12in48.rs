@@ -1,21 +1,19 @@
-use hal::clock::Clocks;
 use hal::gpio::{InputPin, OutputPin};
-use hal::prelude::_embedded_hal_digital_ToggleableOutputPin;
 use hal::{Delay, Spi};
 
 enum Command {
-    //TODO
+    //TODO Implement
 }
 
 /**
-     WIDE        SLIM
-|-------------|-------------|
-|     S2      |     M2      |
-|   (TopL)    |   (TopR)    |
-|-------------|-------------|
-|     M1      |     S1      |
-|   (BotL)     |   (BotR)   |
-|-------------|-------------|
+      WIDE           SLIM
+|--------------|--------------|
+|      S2      |     M2       |
+|    (TopL)    |    (TopR)    |
+|--------------|--------------|
+|      M1      |     S1       |
+|    (BotL)    |   (BotR)     |
+|--------------|--------------|
 
  **/
 
@@ -42,7 +40,7 @@ impl<BusyPin: InputPin, ChipSelectPin: OutputPin> Display<BusyPin, ChipSelectPin
     }
 }
 
-struct DisplayHalf<
+pub struct DisplayHalf<
     ResetPin: OutputPin,
     CommandPin: OutputPin,
     BusyPinL: InputPin,
@@ -56,6 +54,7 @@ struct DisplayHalf<
     right_display: Display<BusyPinR, ChipSelectPinR>,
 }
 
+#[derive(new)]
 pub struct Epd12in48<
     'spi,
     SPIPeripheral,
