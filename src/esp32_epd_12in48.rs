@@ -1,4 +1,6 @@
 use hal::gpio::{InputPin, OutputPin};
+use hal::prelude::_embedded_hal_spi_FullDuplex;
+use hal::spi::{FullDuplexMode, Instance, SpiMode};
 use hal::{Delay, Spi};
 
 enum Command {
@@ -17,27 +19,54 @@ enum Command {
 
  **/
 
-enum Display<BusyPin: InputPin, ChipSelectPin: OutputPin> {
-    WIDE(DisplayInternals<BusyPin, ChipSelectPin>),
-    SLIM(DisplayInternals<BusyPin, ChipSelectPin>),
+enum Display<BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin> {
+    WIDE(DisplayInternals<BusyPin, ChipSelectPin, ResetPin>),
+    SLIM(DisplayInternals<BusyPin, ChipSelectPin, ResetPin>),
 }
 
-struct DisplayInternals<BusyPin: InputPin, ChipSelectPin: OutputPin> {
+struct DisplayInternals<BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin> {
     busy_pin: BusyPin,
     chip_select_pin: ChipSelectPin,
+    reset_pin: ResetPin,
 }
 
-impl<BusyPin: InputPin, ChipSelectPin: OutputPin> Display<BusyPin, ChipSelectPin> {
-    fn width(&self) -> u32 {
+impl<'spi, BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin>
+    Display<BusyPin, ChipSelectPin, ResetPin>
+{
+    pub fn width(&self) -> u32 {
         match self {
             Display::WIDE(_) => 656,
             Display::SLIM(_) => 648,
         }
     }
 
-    fn height() -> u32 {
+    pub fn height() -> u32 {
         492
     }
+
+
+    // psr: Panel Setting
+    pub fn sendCommand<SPIPeripheral: Instance>(
+        &mut self,
+        spi: &mut Spi<'_, SPIPeripheral, FullDuplexMode>,
+        operation: u8,
+        values: [u8;9],
+    ) {
+        let internals = match self {
+            Display::WIDE(internals) => internals,
+            Display::SLIM(internals) => internals,
+        };
+
+        internals.chip_select_pin.set_output_high(false);
+        spi.send(options).expect("failed to send psr command byte");
+        spi.send(options).expect("failed to send psr command data");
+    }
+
+    pub fn psr<SPIPeripheral: Instance>(
+        &mut self,
+        spi: &mut Spi<'_, SPIPeripheral, FullDuplexMode>,
+        options: u8,
+    )
 }
 
 pub struct DisplayHalf<
@@ -50,8 +79,8 @@ pub struct DisplayHalf<
 > {
     reset_pin: ResetPin,
     command_pin: CommandPin,
-    left_display: Display<BusyPinL, ChipSelectPinL>,
-    right_display: Display<BusyPinR, ChipSelectPinR>,
+    left_display: Display<BusyPinL, ChipSelectPinL, ResetPin>,
+    right_display: Display<BusyPinR, ChipSelectPinR, ResetPin>,
 }
 
 #[derive(new)]
@@ -74,9 +103,9 @@ pub struct Epd12in48<
 > {
     spi: Spi<'spi, SPIPeripheral, SPIMode>,
     delay: Delay,
-    top_half:
+    pub top_half:
         DisplayHalf<TopResetPin, TopDataCommandPin, TopLBusyPin, TopLCSPin, TopRBusyPin, TopRCSPin>,
-    bottom_half:
+    pub bottom_half:
         DisplayHalf<BotResetPin, BotDataCommandPin, BotLBusyPin, BotLCSPin, BotRBusyPin, BotRCSPin>,
 }
 
