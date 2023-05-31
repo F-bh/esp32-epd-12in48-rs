@@ -4,11 +4,12 @@
 #[macro_use]
 extern crate derive_new;
 
+use crate::esp32_epd_12in48::{DisplayHalf, Epd12in48};
 use esp_backtrace as _;
 use hal::clock::ClockControl;
 use hal::spi::SpiMode;
 use hal::timer::TimerGroup;
-use hal::{peripherals::Peripherals, prelude::*, Rtc, Spi, IO};
+use hal::{peripherals::Peripherals, prelude::*, Delay, Rtc, Spi, IO};
 
 mod esp32_epd_12in48;
 

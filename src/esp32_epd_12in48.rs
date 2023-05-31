@@ -1,10 +1,42 @@
+use hal::ehal::spi::FullDuplex;
 use hal::gpio::{InputPin, OutputPin};
-use hal::prelude::_embedded_hal_spi_FullDuplex;
-use hal::spi::{FullDuplexMode, Instance, SpiMode};
-use hal::{Delay, Spi};
+use hal::prelude::_embedded_hal_blocking_spi_Transfer;
+use hal::prelude::nb::block;
+use hal::spi::{FullDuplexMode, Instance};
+use hal::{spi, Delay, Spi};
+use readonly;
 
-enum Command {
-    //TODO Implement
+#[readonly::make]
+struct Command<const VALS: usize> {
+    #[readonly]
+    pub op_code: u8,
+    #[readonly]
+    pub vals: [u8; VALS],
+}
+
+impl<const VALS: usize> Command<VALS> {
+    pub fn with_vals(mut self, vals: [u8; VALS]) -> Self {
+        self.vals = vals;
+        return self;
+    }
+}
+
+struct Commands {}
+
+impl Commands {
+    const PSR: Command<1> = Command {
+        op_code: 0,
+        vals: [0],
+    };
+
+    const PWR: Command<5> = Command {
+        op_code: 1,
+        vals: [0; 5],
+    };
+
+    /*impl Commands {
+
+    }*/
 }
 
 /**
@@ -19,19 +51,35 @@ enum Command {
 
  **/
 
-enum Display<BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin> {
-    WIDE(DisplayInternals<BusyPin, ChipSelectPin, ResetPin>),
-    SLIM(DisplayInternals<BusyPin, ChipSelectPin, ResetPin>),
+enum Display<
+    BusyPin: InputPin,
+    ChipSelectPin: OutputPin,
+    CommandPin: OutputPin,
+    ResetPin: OutputPin,
+> {
+    WIDE(DisplayInternals<BusyPin, ChipSelectPin, CommandPin, ResetPin>),
+    SLIM(DisplayInternals<BusyPin, ChipSelectPin, CommandPin, ResetPin>),
 }
 
-struct DisplayInternals<BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin> {
+struct DisplayInternals<
+    BusyPin: InputPin,
+    ChipSelectPin: OutputPin,
+    CommandPin: OutputPin,
+    ResetPin: OutputPin,
+> {
     busy_pin: BusyPin,
     chip_select_pin: ChipSelectPin,
+    command_pin: CommandPin,
     reset_pin: ResetPin,
 }
 
-impl<'spi, BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin>
-    Display<BusyPin, ChipSelectPin, ResetPin>
+impl<
+        'spi,
+        BusyPin: InputPin,
+        ChipSelectPin: OutputPin,
+        CommandPin: OutputPin,
+        ResetPin: OutputPin,
+    > Display<BusyPin, ChipSelectPin, CommandPin, ResetPin>
 {
     pub fn width(&self) -> u32 {
         match self {
@@ -44,29 +92,30 @@ impl<'spi, BusyPin: InputPin, ChipSelectPin: OutputPin, ResetPin: OutputPin>
         492
     }
 
-
-    // psr: Panel Setting
-    pub fn sendCommand<SPIPeripheral: Instance>(
+    fn send_command<SPIPeripheral: Instance, const CMD_LEN: usize>(
         &mut self,
-        spi: &mut Spi<'_, SPIPeripheral, FullDuplexMode>,
-        operation: u8,
-        values: [u8;9],
-    ) {
+        spi: &mut Spi<SPIPeripheral, FullDuplexMode>,
+        mut command: Command<CMD_LEN>,
+    ) -> Option<spi::Error> {
         let internals = match self {
             Display::WIDE(internals) => internals,
             Display::SLIM(internals) => internals,
         };
 
         internals.chip_select_pin.set_output_high(false);
-        spi.send(options).expect("failed to send psr command byte");
-        spi.send(options).expect("failed to send psr command data");
-    }
+        internals.command_pin.set_output_high(true);
+        if let Err(err) = block!(spi.send(command.op_code)) {
+            return Some(err);
+        }
+        internals.command_pin.set_output_high(false);
 
-    pub fn psr<SPIPeripheral: Instance>(
-        &mut self,
-        spi: &mut Spi<'_, SPIPeripheral, FullDuplexMode>,
-        options: u8,
-    )
+        if let Err(err) = spi.transfer(&mut command.vals) {
+            return Some(err);
+        }
+
+        internals.chip_select_pin.set_output_high(true);
+        return None;
+    }
 }
 
 pub struct DisplayHalf<
@@ -79,15 +128,14 @@ pub struct DisplayHalf<
 > {
     reset_pin: ResetPin,
     command_pin: CommandPin,
-    left_display: Display<BusyPinL, ChipSelectPinL, ResetPin>,
-    right_display: Display<BusyPinR, ChipSelectPinR, ResetPin>,
+    left_display: Display<BusyPinL, ChipSelectPinL, CommandPin, ResetPin>,
+    right_display: Display<BusyPinR, ChipSelectPinR, CommandPin, ResetPin>,
 }
 
 #[derive(new)]
 pub struct Epd12in48<
     'spi,
     SPIPeripheral,
-    SPIMode,
     TopLCSPin: OutputPin,
     TopRCSPin: OutputPin,
     BotLCSPin: OutputPin,
@@ -101,7 +149,7 @@ pub struct Epd12in48<
     TopDataCommandPin: OutputPin,
     BotDataCommandPin: OutputPin,
 > {
-    spi: Spi<'spi, SPIPeripheral, SPIMode>,
+    spi: Spi<'spi, SPIPeripheral, FullDuplexMode>,
     delay: Delay,
     pub top_half:
         DisplayHalf<TopResetPin, TopDataCommandPin, TopLBusyPin, TopLCSPin, TopRBusyPin, TopRCSPin>,
@@ -111,8 +159,7 @@ pub struct Epd12in48<
 
 impl<
         'spi,
-        SPIPeripheral,
-        SPIMode,
+        SPIPeripheral: Instance,
         TopLCSPin: OutputPin,
         TopRCSPin: OutputPin,
         BotLCSPin: OutputPin,
@@ -129,7 +176,6 @@ impl<
     Epd12in48<
         'spi,
         SPIPeripheral,
-        SPIMode,
         TopLCSPin,
         TopRCSPin,
         BotLCSPin,
@@ -144,4 +190,11 @@ impl<
         BotDataCommandPin,
     >
 {
+    pub fn init(&mut self) {
+        let mut x = Commands::PSR;
+        x.vals = [2; 1];
+        self.top_half
+            .left_display
+            .send_command(&mut self.spi, Commands::PSR.with_vals([0x1f]));
+    }
 }
