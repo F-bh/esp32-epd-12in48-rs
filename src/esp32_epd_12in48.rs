@@ -3,10 +3,11 @@ use hal::gpio::{InputPin, OutputPin};
 use hal::prelude::_embedded_hal_blocking_spi_Transfer;
 use hal::prelude::nb::block;
 use hal::spi::{FullDuplexMode, Instance};
-use hal::{spi, Delay, Spi};
+use hal::{spi, Delay, Error, Spi};
 use readonly;
 
 #[readonly::make]
+#[derive(Copy, Clone)]
 struct Command<const VALS: usize> {
     #[readonly]
     pub op_code: u8,
@@ -30,13 +31,49 @@ impl Commands {
     };
 
     const PWR: Command<5> = Command {
-        op_code: 1,
+        op_code: 0x1,
         vals: [0; 5],
     };
 
-    /*impl Commands {
+    const BTST: Command<4> = Command {
+        op_code: 0x6,
+        vals: [0; 4],
+    };
 
-    }*/
+    const TRES: Command<4> = Command {
+        op_code: 0x61,
+        vals: [0; 4],
+    };
+
+    const DUSPI: Command<1> = Command {
+        op_code: 0x15,
+        vals: [0; 1],
+    };
+
+    const CDI: Command<2> = Command {
+        op_code: 0x50,
+        vals: [0; 2],
+    };
+
+    const TCON: Command<1> = Command {
+        op_code: 0x60,
+        vals: [0; 1],
+    };
+
+    const PWS: Command<1> = Command {
+        op_code: 0xE3,
+        vals: [0; 1],
+    };
+
+    const CCSET: Command<1> = Command {
+        op_code: 0xE0,
+        vals: [0; 1],
+    };
+
+    const TSSET: Command<1> = Command {
+        op_code: 0xE5,
+        vals: [0; 1],
+    };
 }
 
 /**
@@ -190,11 +227,65 @@ impl<
         BotDataCommandPin,
     >
 {
-    pub fn init(&mut self) {
-        let mut x = Commands::PSR;
-        x.vals = [2; 1];
+    // commands sent in the order of top -> bot; left -> right; vals should be in that order
+    fn send_command_to_all<const LEN: usize>(
+        &mut self,
+        cmd: Command<LEN>,
+        vals: [[u8; LEN]; 4],
+    ) -> Option<Error> {
         self.top_half
             .left_display
-            .send_command(&mut self.spi, Commands::PSR.with_vals([0x1f]));
+            .send_command(&mut self.spi, cmd.with_vals(vals[0]))?;
+
+        self.bottom_half
+            .left_display
+            .send_command(&mut self.spi, cmd.with_vals(vals[1]))?;
+
+        self.top_half
+            .right_display
+            .send_command(&mut self.spi, cmd.with_vals(vals[2]))?;
+
+        self.bottom_half
+            .right_display
+            .send_command(&mut self.spi, cmd.with_vals(vals[3]))?;
+        return None;
+    }
+
+    // modeled after
+    // https://github.com/waveshare/12.48inch-e-paper/blob/master/esp32/esp32-epd-12in48/src/utility/EPD_12in48.cpp#L68
+    pub fn init(&mut self) -> Option<Error> {
+        // send PSR commands
+        self.send_command_to_all(Commands::PSR, [[0x1f]; 4])?;
+
+        // set resolution
+        self.send_command_to_all(
+            Commands::TRES,
+            [
+                [0x02, 0x88, 0x01, 0xEC],
+                [0x02, 0x88, 0x01, 0xEC],
+                [0x02, 0x90, 0x01, 0xEC],
+                [0x02, 0x90, 0x01, 0xEC],
+            ],
+        )?;
+
+        // SPI settings
+        self.send_command_to_all(Commands::DUSPI, [[0x20]; 4])?;
+
+        // VCOM and data interval setting
+        self.send_command_to_all(Commands::CDI, [[0x21, 0x07]; 4])?;
+
+        // TCON settings
+        self.send_command_to_all(Commands::TCON, [[0x22]; 4])?;
+
+        // PWS settings
+        self.send_command_to_all(Commands::PWS, [[0]; 4])?;
+
+        // Cascade settings
+        self.send_command_to_all(Commands::CCSET, [[0x03]; 4])?;
+
+        // force temperature
+        self.send_command_to_all(Commands::TSSET, [[0xE5]; 4])?;
+
+        return None;
     }
 }
